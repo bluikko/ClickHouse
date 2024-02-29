@@ -6,7 +6,7 @@ import json
 import logging
 import sys
 import time
-from os import makedirs
+from os import getenv, makedirs
 from os import path as p
 from pathlib import Path
 from typing import Dict, List
@@ -71,13 +71,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--image-path",
         type=str,
-        default="docker/server",
+        default="",
         help="a path to docker context directory",
     )
     parser.add_argument(
         "--image-repo",
         type=str,
-        default="clickhouse/clickhouse-server",
+        default="",
         help="image name on docker hub",
     )
     parser.add_argument(
@@ -92,9 +92,9 @@ def parse_args() -> argparse.Namespace:
         default=argparse.SUPPRESS,
         help="don't push reports to S3 and github",
     )
-    parser.add_argument("--push", default=True, help=argparse.SUPPRESS)
+    parser.add_argument("--push", default=False, help=argparse.SUPPRESS)
     parser.add_argument(
-        "--no-push-images",
+        "--no-push",
         action="store_false",
         dest="push",
         default=argparse.SUPPRESS,
@@ -337,13 +337,35 @@ def main():
     makedirs(TEMP_PATH, exist_ok=True)
 
     args = parse_args()
+
+    pr_info = PRInfo()
+
+    check_name = getenv("CHECK_NAME", "")
+    assert check_name or (args.image_path and args.image_repo), "BUG"
+    if "server image" in check_name.lower():
+        args.image_path = "docker/server"
+        args.image_repo = "clickhouse/clickhouse-server"
+    elif "keeper image" in check_name.lower():
+        args.image_path = "docker/keeper"
+        args.image_repo = "clickhouse/clickhouse-keeper"
+    else:
+        assert False, "BUG"
+
+    if pr_info.number > 0 or pr_info.is_master():
+        # args parameters are set only for PR and master not for releases, backports workflows
+        args.release_type = "head"
+        if pr_info.is_master():
+            args.push = True
+        else:
+            args.push = False
+        # we allow build reuse in PRs and on master, build_report will be used to find binaries
+        args.allow_build_reuse = True
+
     image = DockerImageData(args.image_path, args.image_repo, False)
     args.release_type = auto_release_type(args.version, args.release_type)
     tags = gen_tags(args.version, args.release_type)
-    pr_info = None
     repo_urls = dict()
     direct_urls: Dict[str, List[str]] = dict()
-    pr_info = PRInfo()
     release_or_pr, _ = get_release_or_pr(pr_info, args.version)
 
     for arch, build_name in zip(ARCH, ("package_release", "package_aarch64")):
