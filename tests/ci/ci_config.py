@@ -276,6 +276,7 @@ class BuildReportConfig:
     builds: List[str]
     job_config: JobConfig = field(
         default_factory=lambda: JobConfig(
+            run_command='build_report_check.py "$CHECK_NAME"',
             digest=DigestConfig(
                 include_paths=[
                     "./tests/ci/build_report_check.py",
@@ -560,7 +561,27 @@ class CIConfig:
             for check_name in config:  # type: ignore
                 yield check_name
 
-    def get_builds_for_report(self, report_name: str) -> List[str]:
+    def get_builds_for_report(
+        self, report_name: str, release: bool = False
+    ) -> List[str]:
+        # hack to modify build list for release and bp wf
+        builds_release = (
+            [
+                Build.PACKAGE_RELEASE,
+                Build.PACKAGE_AARCH64,
+                Build.PACKAGE_ASAN,
+                Build.PACKAGE_TSAN,
+                Build.PACKAGE_DEBUG,
+            ]
+            if report_name == JobNames.BUILD_CHECK
+            else [
+                Build.BINARY_DARWIN,
+                Build.BINARY_DARWIN_AARCH64,
+            ]
+        )
+        if release:
+            return builds_release
+
         return self.builds_report_config[report_name].builds
 
     @classmethod
